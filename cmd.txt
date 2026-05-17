@@ -1,0 +1,16 @@
+Backend:
+
+
+cd  "D:\CLG WORK\sy sem 2\edi\edusched\backend"
+
+npm run dev
+
+Frontend:
+
+
+cd /d "D:\CLG WORK\sy sem 2\edi\edusched\frontend"
+
+npm start
+
+
+Then open browser → http://localhost:3000

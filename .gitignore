@@ -1,0 +1,3 @@
+# Inside edi/edusched/backend/ create .gitignore
+node_modules/
+.env
