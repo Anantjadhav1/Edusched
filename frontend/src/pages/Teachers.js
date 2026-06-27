@@ -95,7 +95,7 @@ export default function Teachers() {
         <div style={{ marginTop: 14, background: '#1a2340', border: '0.5px solid #2a3a6a', borderRadius: 10, padding: 14 }}>
           <div style={{ fontSize: 12.5, color: '#7ba7f7', fontWeight: 700, marginBottom: 6 }}>Excel Format:</div>
           <div style={{ fontSize: 12, color: '#94a3b8', lineHeight: 2 }}>
-            Column 1: <span style={{ color: '#e2e8f0', fontWeight: 600 }}>TeacherName</span> :-  Full name with title (e.g. Prof. Dr. Sandip Shinde)<br/>
+            Column 1: <span style={{ color: '#e2e8f0', fontWeight: 600 }}>TeacherName</span> :-  Full name W/O TITLE (e.g. Sandip Shinde)<br/>
             Column 2: <span style={{ color: '#e2e8f0', fontWeight: 600 }}>Designation</span> :- Professor / Associate Professor / Assistant Professor<br/>
             Column 3: <span style={{ color: '#e2e8f0', fontWeight: 600 }}>Phone</span> :- Optional, can be left blank
           </div>

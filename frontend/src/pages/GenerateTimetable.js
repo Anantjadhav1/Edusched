@@ -14,10 +14,26 @@ const IconX = () => (
   </svg>
 );
 
+const PROGRESS_MESSAGES = [
+  'Initializing scheduler...',
+  'Loading subject allocations from DB...',
+  'Building division subject maps...',
+  'Scheduling lab blocks (parallel batches)...',
+  'Running backtracking algorithm for theory...',
+  'Scheduling tutorials with MRV ordering...',
+  'Resolving teacher conflicts...',
+  'Filling free slots...',
+  'Saving timetables to database...',
+  'Almost done...',
+];
+
 export default function GenerateTimetable() {
   const navigate = useNavigate();
   const [checks, setChecks] = useState({ rooms: 0, divisions: 0, teachers: 0, allocation: 0, slots: 0 });
   const [generating, setGenerating] = useState(false);
+  const [progressMsg, setProgressMsg] = useState('');
+  const [elapsed, setElapsed] = useState(0);
+  const [result, setResult] = useState(null);
 
   useEffect(() => {
     Promise.all([
@@ -49,12 +65,36 @@ export default function GenerateTimetable() {
 
   const generate = async () => {
     setGenerating(true);
+    setResult(null);
+    setElapsed(0);
+
+    // Cycle through progress messages
+    let msgIdx = 0;
+    setProgressMsg(PROGRESS_MESSAGES[0]);
+    const msgInterval = setInterval(() => {
+      msgIdx = (msgIdx + 1) % PROGRESS_MESSAGES.length;
+      setProgressMsg(PROGRESS_MESSAGES[msgIdx]);
+    }, 4000);
+
+    // Elapsed timer
+    const startTime = Date.now();
+    const elapsedInterval = setInterval(() => {
+      setElapsed(Math.floor((Date.now() - startTime) / 1000));
+    }, 1000);
+
     try {
-      const res = await api.post('/timetable/generate');
+      // Set long timeout for axios (10 min)
+      const res = await api.post('/timetable/generate', {}, { timeout: 10 * 60 * 1000 });
       toast.success(res.data.message);
-      navigate('/view');
-    } catch (err) { toast.error(err.response?.data?.message || 'Generation failed'); }
-    finally { setGenerating(false); }
+      setResult(res.data);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Generation failed');
+    } finally {
+      clearInterval(msgInterval);
+      clearInterval(elapsedInterval);
+      setGenerating(false);
+      setProgressMsg('');
+    }
   };
 
   return (
@@ -62,9 +102,10 @@ export default function GenerateTimetable() {
       <div className="breadcrumb">Home / <span>Generate Timetable</span></div>
       <div className="page-header">
         <h1>Timetable Generation Engine</h1>
-        <p>Automatically generate conflict-free timetables for all divisions.</p>
+        <p>Backtracking algorithm — guarantees maximum subject allocation.</p>
       </div>
 
+      {/* Checklist */}
       <div className="section-card">
         <h2>Pre-Generation Checklist</h2>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 20 }}>
@@ -99,25 +140,87 @@ export default function GenerateTimetable() {
           </div>
         )}
 
+        {/* Generating progress UI */}
+        {generating && (
+          <div style={{ background: '#1a2340', border: '0.5px solid #3a5bc7', borderRadius: 12, padding: 20, marginBottom: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+              {/* Spinner */}
+              <div style={{
+                width: 28, height: 28, borderRadius: '50%',
+                border: '3px solid #2a3a6a',
+                borderTop: '3px solid #7ba7f7',
+                animation: 'spin 1s linear infinite',
+                flexShrink: 0,
+              }} />
+              <div>
+                <div style={{ fontWeight: 700, color: '#7ba7f7', fontSize: 14 }}>{progressMsg}</div>
+                <div style={{ fontSize: 12, color: '#6b7280', marginTop: 3 }}>
+                  Elapsed: {elapsed}s — backtracking in progress, please wait...
+                </div>
+              </div>
+            </div>
+            {/* Progress bar animation */}
+            <div style={{ background: '#0f1117', borderRadius: 6, height: 6, overflow: 'hidden' }}>
+              <div style={{
+                height: '100%', borderRadius: 6,
+                background: 'linear-gradient(90deg, #3a5bc7, #7ba7f7)',
+                animation: 'progressBar 4s ease-in-out infinite',
+              }} />
+            </div>
+            <style>{`
+              @keyframes spin { to { transform: rotate(360deg); } }
+              @keyframes progressBar {
+                0% { width: 5%; }
+                50% { width: 80%; }
+                100% { width: 95%; }
+              }
+            `}</style>
+          </div>
+        )}
+
         <div className="form-actions">
-          <button className="btn btn-primary" onClick={generate} disabled={issues.length > 0 || generating}
+          <button className="btn btn-primary" onClick={generate}
+            disabled={issues.length > 0 || generating}
             style={{ fontSize: 14, padding: '10px 24px' }}>
-            {generating ? 'Generating...' : 'Generate Timetable'}
+            {generating ? `Generating... (${elapsed}s)` : 'Generate Timetable'}
           </button>
-          <button className="btn btn-outline" onClick={() => navigate('/view')}>View Existing</button>
+          {!generating && (
+            <button className="btn btn-outline" onClick={() => navigate('/view')}>View Existing</button>
+          )}
         </div>
       </div>
 
+      {/* Result summary */}
+      {result && (
+        <div className="section-card" style={{ borderLeft: '3px solid #1caa6b' }}>
+          <h2 style={{ color: '#4ade80' }}>Generation Complete</h2>
+          <div style={{ fontSize: 13, color: '#94a3b8', marginBottom: 14 }}>{result.message}</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
+            {(result.data || []).map(d => (
+              <span key={d.divisionId} style={{
+                background: '#0f2a1e', border: '0.5px solid #1caa6b44',
+                borderRadius: 8, padding: '5px 12px', fontSize: 12, fontWeight: 600, color: '#4ade80',
+              }}>
+                {d.divisionId} — {d.cellCount} cells
+              </span>
+            ))}
+          </div>
+          <button className="btn btn-primary" onClick={() => navigate('/view')}>
+            View Timetables →
+          </button>
+        </div>
+      )}
+
+      {/* Algorithm info */}
       <div className="section-card">
         <h2>Algorithm Details</h2>
         <div className="info-box">
-          The scheduling engine enforces these constraints:<br/>
-          • <span style={{ color: '#e2e8f0', fontWeight: 600 }}>No teacher clashes</span> — same teacher never placed in 2 divisions at same time<br/>
-          • <span style={{ color: '#e2e8f0', fontWeight: 600 }}>No room double-booking</span> — rooms exclusively assigned per slot<br/>
-          • <span style={{ color: '#e2e8f0', fontWeight: 600 }}>Max daily hours</span> — per division strictly respected and for teachers also<br/>
-          • <span style={{ color: '#e2e8f0', fontWeight: 600 }}>Buffer slots</span> — intentionally left free for rescheduling<br/>
-          • <span style={{ color: '#e2e8f0', fontWeight: 600 }}>Lab scheduling</span> — MAD+SAD consecutive 1hr slots, other labs 2hr blocks per batch<br/>
-          • <span style={{ color: '#e2e8f0', fontWeight: 600 }}>Excel-driven</span> — upload new Excel anytime, regenerate TT without code changes
+          • <span style={{ color: '#e2e8f0', fontWeight: 600 }}>Labs first</span> — each lab subject gets one dedicated day; all batches run parallel same slot, different rooms<br/>
+          • <span style={{ color: '#e2e8f0', fontWeight: 600 }}>MRV ordering</span> — most constrained subjects scheduled first<br/>
+          • <span style={{ color: '#e2e8f0', fontWeight: 600 }}>Backtracking</span> — if a subject can't fit, algorithm backtracks and tries alternate slots<br/>
+          • <span style={{ color: '#e2e8f0', fontWeight: 600 }}>No teacher clashes</span> — enforced globally across all divisions<br/>
+          • <span style={{ color: '#e2e8f0', fontWeight: 600 }}>Fully dynamic</span> — upload new Excel anytime, regenerate instantly<br/>
+          • <span style={{ color: '#e2e8f0', fontWeight: 600 }}>Time</span> — may take 30s–2min depending on data size, please wait
         </div>
       </div>
     </div>

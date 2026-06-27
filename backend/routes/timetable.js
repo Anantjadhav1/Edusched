@@ -8,7 +8,7 @@ const SubjectAllocation = require('../models/SubjectAllocation');
 const { protect } = require('../middleware/auth');
 const { generateTimetable, generateSlots } = require('../utils/scheduler');
 
-
+// GET all timetables (summary)
 router.get('/', protect, async (req, res) => {
   try {
     const timetables = await Timetable.find({ isActive: true }).select('-cells').sort({ yearId: 1, divisionId: 1 });
@@ -16,15 +16,13 @@ router.get('/', protect, async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 });
 
-
+// GET free slots for a division
 router.get('/:divisionId/free-slots', protect, async (req, res) => {
   try {
     const tt = await Timetable.findOne({ divisionId: req.params.divisionId });
     if (!tt) return res.status(404).json({ success: false, message: 'Timetable not found' });
-
     const config = await WorkConfig.findOne();
     const slots = generateSlots(config.startTime, config.endTime, config.slotDuration);
-
     const freeSlots = [];
     config.days.forEach(day => {
       slots.forEach((slot, si) => {
@@ -33,19 +31,17 @@ router.get('/:divisionId/free-slots', protect, async (req, res) => {
         if (isFree) freeSlots.push({ day, slotIndex: si, slotLabel: slot.label });
       });
     });
-
     res.json({ success: true, data: freeSlots });
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 });
 
-
+// GET export CSV
 router.get('/:divisionId/export', protect, async (req, res) => {
   try {
     const tt = await Timetable.findOne({ divisionId: req.params.divisionId });
     if (!tt) return res.status(404).json({ success: false, message: 'Timetable not found' });
     const config = await WorkConfig.findOne();
     const slots = generateSlots(config.startTime, config.endTime, config.slotDuration);
-
     let csv = 'Day,Slot,Subject,Type,Teacher,Room\n';
     config.days.forEach(day => {
       slots.forEach((slot, si) => {
@@ -57,14 +53,13 @@ router.get('/:divisionId/export', protect, async (req, res) => {
         }
       });
     });
-
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', `attachment; filename=timetable_${req.params.divisionId}.csv`);
     res.send(csv);
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 });
 
-
+// GET single division timetable
 router.get('/:divisionId', protect, async (req, res) => {
   try {
     const tt = await Timetable.findOne({ divisionId: req.params.divisionId, isActive: true });
@@ -73,8 +68,12 @@ router.get('/:divisionId', protect, async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 });
 
-
+// POST generate — no Express timeout, backtracking can take time
 router.post('/generate', protect, async (req, res) => {
+  // Set socket timeout to 10 minutes for this long-running operation
+  req.socket.setTimeout(10 * 60 * 1000);
+  res.setTimeout(10 * 60 * 1000);
+
   try {
     const config = await WorkConfig.findOne();
     if (!config) return res.status(400).json({ success: false, message: 'Work config not set' });
@@ -89,9 +88,11 @@ router.post('/generate', protect, async (req, res) => {
     const allocCount = await SubjectAllocation.countDocuments();
     if (allocCount === 0) return res.status(400).json({ success: false, message: 'No subjects allocated — upload Excel first' });
 
+    console.log(`[GENERATE] Starting timetable generation for ${totalDivisions} divisions...`);
+    const startTime = Date.now();
+
     const slots = generateSlots(config.startTime, config.endTime, config.slotDuration);
     const configWithSlots = { ...config.toObject(), generatedSlots: slots };
-
     const plainYears = years.map(y => y.toObject());
     const plainRooms = rooms.map(r => r.toObject());
 
@@ -102,18 +103,21 @@ router.post('/generate', protect, async (req, res) => {
       timetables.map(tt => ({ ...tt, generatedAt: new Date(), isActive: true }))
     );
 
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+    console.log(`[GENERATE] Done in ${elapsed}s — ${savedTimetables.length} divisions`);
+
     res.status(201).json({
       success: true,
-      message: `Timetables generated for ${savedTimetables.length} divisions`,
+      message: `Timetables generated for ${savedTimetables.length} divisions in ${elapsed}s`,
       data: savedTimetables.map(t => ({ divisionId: t.divisionId, yearId: t.yearId, cellCount: t.cells.length })),
     });
   } catch (err) {
-    console.error(err);
+    console.error('[GENERATE ERROR]', err);
     res.status(500).json({ success: false, message: err.message });
   }
 });
 
-
+// PUT reschedule single lecture
 router.put('/:divisionId/reschedule', protect, async (req, res) => {
   try {
     const { fromDay, fromSlotIndex, toDay, toSlotIndex } = req.body;
@@ -139,12 +143,11 @@ router.put('/:divisionId/reschedule', protect, async (req, res) => {
 
     tt.markModified('cells');
     await tt.save();
-
     res.json({ success: true, message: 'Lecture rescheduled', data: tt });
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 });
 
-
+// DELETE all timetables
 router.delete('/', protect, async (req, res) => {
   try {
     await Timetable.deleteMany({});
